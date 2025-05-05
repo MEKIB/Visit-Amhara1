@@ -11,19 +11,14 @@ import {
     Dimensions,
     TextInput,
     Alert,
-    ActivityIndicator
+    ActivityIndicator,
+    Animated,
 } from 'react-native';
 import { MaterialIcons, FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Divider } from 'react-native-elements';
 import axios from 'axios';
 import WebView from 'react-native-webview';
-
-// Ensure only one version of react-native-webview is installed to avoid RNCWebView error:
-// npm uninstall react-native-webview && npm install react-native-webview@latest
-// After installation, run: cd ios && pod install && cd ..
-// Clean build caches: npx react-native start --reset-cache
-// For Android: cd android && ./gradlew clean && cd ..
-// Verify with: npm list react-native-webview
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
 
@@ -48,27 +43,24 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
   const [showWebView, setShowWebView] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState('');
   const [txRef, setTxRef] = useState('');
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   const webViewRef = useRef(null);
+  const scaleAnim = useRef(new Animated.Value(0)).current; // Animation for success modal
 
-  // Chapa test mode credentials
   const CHAPA_API_KEY = "CHASECK_TEST-4pTzzegz9U161hW3UsB1Tkse2wyOcZYS";
   const TEST_CARD_NUMBER = "4242424242424242";
   const TEST_PHONE_NUMBER = "0912345678";
   const TEST_EXPIRY = "12/25";
   const TEST_CVV = "123";
 
-  // Ngrok URLs for testing
-  // Ensure your backend server is running and exposed via ngrok:
-  // ngrok http 3000
-  // Verify the URL matches https://4352-213-55-102-49.ngrok-free.app
   const CALLBACK_URL = testMode
-    ? 'https://4352-213-55-102-49.ngrok-free.app/webhook/chapa'
-    : (process.env.CALLBACK_URL || 'https://your-app.com/webhook/chapa');
+    ? 'https://74c2-213-55-102-49.ngrok-free.app/webhook/chapa'
+    : (process.env.CALLBACK_URL || 'https://74c2-213-55-102-49.ngrok-free.app/webhook/chapa');
   const RETURN_URL = testMode
-    ? 'https://4352-213-55-102-49.ngrok-free.app/payment-complete'
-    : (process.env.RETURN_URL || 'https://your-app.com/payment-complete');
+    ? 'https://74c2-213-55-102-49.ngrok-free.app/payment-complete'
+    : (process.env.RETURN_URL || 'https://74c2-213-55-102-49.ngrok-free.app/payment-complete');
 
-  // Utility function to generate transaction reference
   const generateTxRef = (options = {}) => {
     const { prefix = 'TX', size = 15, removePrefix = false } = options;
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -79,7 +71,6 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
     return removePrefix ? result : `${prefix}-${result}`;
   };
 
-  // Validation functions
   const validatePhoneNumber = (phone) => {
     const ethiopianPhoneRegex = /^09\d{8}$/;
     return ethiopianPhoneRegex.test(phone);
@@ -141,8 +132,30 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
     }));
   };
 
-  const showAlert = (title, message) => {
-    Alert.alert(title, message);
+  const showAlert = (title, message, onOk = () => {}) => {
+    Alert.alert(
+      title,
+      message,
+      [{ text: 'OK', onPress: onOk }],
+      { cancelable: false }
+    );
+  };
+
+  const showSuccessNotification = (message, onOk = () => {}) => {
+    setSuccessMessage(message);
+    setShowSuccessModal(true);
+    // Start animation
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 5,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+
+    setTimeout(() => {
+      setShowSuccessModal(false);
+      onOk();
+    }, 3000); // Auto-close after 3 seconds
   };
 
   const verifyTransaction = async (tx_ref) => {
@@ -164,7 +177,6 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
   };
 
   const handlePay = async () => {
-    // Input validation
     if (paymentMethod === 'chapa') {
       if (!selectedChapaOption) {
         showAlert('Error', 'Please select a payment option');
@@ -214,10 +226,9 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
         const [first_name, ...last_name_parts] = mobilePaymentDetails.fullName.split(' ');
         const last_name = last_name_parts.join(' ') || 'User';
 
-        // Convert USD to ETB (1 USD = 120 ETB for test purposes)
         const exchangeRate = 120;
         const etbAmount = testMode 
-          ? '100.00' // Fixed amount for test mode
+          ? '100.00'
           : (Number(bookingDetails.totalPrice) * exchangeRate).toFixed(2);
 
         const initData = {
@@ -236,7 +247,6 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
           },
         };
 
-        // Validate API key
         if (!CHAPA_API_KEY.startsWith('CHASECK_TEST-')) {
           throw new Error('Invalid Chapa API key format');
         }
@@ -267,17 +277,18 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
         if (testMode) {
           console.log("Test Mastercard payment initiated");
           await new Promise(resolve => setTimeout(resolve, 2000));
-          showAlert(
-            'Payment Successful (Test Mode)', 
-            `Test payment successful! $${bookingDetails.totalPrice} paid`
+          showSuccessNotification(
+            `Test Payment Successful! $${bookingDetails.totalPrice} Paid`,
+            onClose
           );
+          setLoading(false);
         } else {
-          // Placeholder for real Mastercard payment
           await new Promise(resolve => setTimeout(resolve, 2000));
-          showAlert(
-            'Payment Successful', 
-            `Payment successful! $${bookingDetails.totalPrice} paid`
+          showSuccessNotification(
+            `Payment Successful! $${bookingDetails.totalPrice} Paid`,
+            onClose
           );
+          setLoading(false);
         }
       }
     } catch (error) {
@@ -291,7 +302,6 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
       if (error.response) {
         const errorData = error.response.data;
         if (errorData.message && typeof errorData.message === 'object') {
-          // Extract specific validation errors
           const validationErrors = Object.entries(errorData.message)
             .map(([key, messages]) => `${key}: ${messages.join(', ')}`)
             .join('; ');
@@ -317,27 +327,38 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
       try {
         const verifyResponse = await verifyTransaction(txRef);
         if (verifyResponse.data.status === 'success') {
-          showAlert(
-            testMode ? 'Test Payment Successful' : 'Payment Successful',
-            `Payment successful via ${selectedChapaOption}! ${verifyResponse.data.currency} ${verifyResponse.data.amount} paid. TxRef: ${txRef}`
+          showSuccessNotification(
+            testMode 
+              ? `Test Payment Successful! ${verifyResponse.data.currency} ${verifyResponse.data.amount} Paid. TxRef: ${txRef}` 
+              : `Payment Successful via ${selectedChapaOption}! ${verifyResponse.data.currency} ${verifyResponse.data.amount} Paid. TxRef: ${txRef}`,
+            () => {
+              setLoading(false);
+              onClose();
+            }
           );
         } else if (verifyResponse.data.status === 'pending') {
           showAlert(
             'Payment Pending',
-            'Your payment is still processing. Please check back later.'
+            'Your payment is still processing. Please check back later.',
+            () => {
+              setLoading(false);
+              onClose();
+            }
           );
         } else {
           showAlert(
             'Payment Failed',
-            `Payment status: ${verifyResponse.data.status}`
+            `Payment status: ${verifyResponse.data.status}`,
+            () => setLoading(false)
           );
         }
       } catch (error) {
         console.error("Verification error:", error);
-        showAlert('Payment Verification Failed', error.message || 'Unable to verify payment');
-      } finally {
-        setLoading(false);
-        setTimeout(onClose, 2000);
+        showAlert(
+          'Payment Verification Failed',
+          error.message || 'Unable to verify payment',
+          () => setLoading(false)
+        );
       }
     }
   };
@@ -368,388 +389,418 @@ const PaymentModal = ({ visible, onClose, bookingDetails }) => {
   if (!bookingDetails) return null;
 
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.paymentModalOverlay}>
-        <View style={styles.paymentModalContainer}>
-          {showWebView ? (
-            <View style={styles.webViewContainer}>
-              <WebView
-                ref={webViewRef}
-                source={{ uri: checkoutUrl }}
-                style={styles.webView}
-                onNavigationStateChange={handleWebViewNavigationStateChange}
-                onError={handleWebViewError}
-                startInLoadingState={true}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                renderLoading={() => (
-                  <ActivityIndicator size="large" color="#00ADB5" style={styles.webViewLoading} />
-                )}
-              />
-              <TouchableOpacity
-                style={styles.closeWebViewButton}
-                onPress={() => {
-                  setShowWebView(false);
-                  setLoading(false);
-                }}
-              >
-                <MaterialIcons name="close" size={24} color="#EEEEEE" />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <>
-              <View style={styles.paymentModalHeader}>
-                <Text style={styles.paymentModalTitle}>Complete Your Booking</Text>
-                <View style={styles.headerRight}>
-                  <TouchableOpacity 
-                    style={styles.testModeButton}
-                    onPress={toggleTestMode}
-                  >
-                    <Text style={styles.testModeButtonText}>
-                      {testMode ? 'TEST MODE ON' : 'TEST MODE OFF'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                    <MaterialIcons name="close" size={24} color="#EEEEEE" />
-                  </TouchableOpacity>
-                </View>
+    <>
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={onClose}
+      >
+        <View style={styles.paymentModalOverlay}>
+          <View style={styles.paymentModalContainer}>
+            {showWebView ? (
+              <View style={styles.webViewContainer}>
+                <WebView
+                  ref={webViewRef}
+                  source={{ uri: checkoutUrl }}
+                  style={styles.webView}
+                  onNavigationStateChange={handleWebViewNavigationStateChange}
+                  onError={handleWebViewError}
+                  startInLoadingState={true}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  renderLoading={() => (
+                    <ActivityIndicator size="large" color="#00ADB5" style={styles.webViewLoading} />
+                  )}
+                />
+                <TouchableOpacity
+                  style={styles.closeWebViewButton}
+                  onPress={() => {
+                    setShowWebView(false);
+                    setLoading(false);
+                  }}
+                >
+                  <MaterialIcons name="close" size={24} color="#EEEEEE" />
+                </TouchableOpacity>
               </View>
-              
-              <ScrollView style={styles.paymentModalContent}>
-                {testMode && (
-                  <View style={styles.testModeBanner}>
-                    <Text style={styles.testModeText}>
-                      You're in test mode. Transactions will appear on the Chapa dashboard but won't process real payments.
-                    </Text>
-                  </View>
-                )}
-                
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Booking Summary</Text>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Hotel:</Text>
-                    <Text style={styles.summaryValue}>{bookingDetails?.hotelName}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Room Type:</Text>
-                    <Text style={styles.summaryValue}>{bookingDetails?.roomType}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Rooms:</Text>
-                    <Text style={styles.summaryValue}>{bookingDetails?.roomNumbers.join(', ')}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Check-in:</Text>
-                    <Text style={styles.summaryValue}>{bookingDetails?.checkInDate}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Check-out:</Text>
-                    <Text style={styles.summaryValue}>{bookingDetails?.checkOutDate}</Text>
-                  </View>
-                  
-                  <Divider style={styles.summaryDivider} />
-                  
-                  <View style={styles.summaryRow}>
-                    <Text style={[styles.summaryLabel, styles.totalLabel]}>Total:</Text>
-                    <Text style={[styles.summaryValue, styles.totalValue]}>${bookingDetails?.totalPrice}</Text>
+            ) : (
+              <>
+                <View style={styles.paymentModalHeader}>
+                  <Text style={styles.paymentModalTitle}>Complete Your Booking</Text>
+                  <View style={styles.headerRight}>
+                    <TouchableOpacity 
+                      style={styles.testModeButton}
+                      onPress={toggleTestMode}
+                    >
+                      <Text style={styles.testModeButtonText}>
+                        {testMode ? 'TEST MODE ON' : 'TEST MODE OFF'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                      <MaterialIcons name="close" size={24} color="#EEEEEE" />
+                    </TouchableOpacity>
                   </View>
                 </View>
-
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Payment Method</Text>
-                  
-                  <View style={styles.paymentMethods}>
-                    <TouchableOpacity 
-                      style={[
-                        styles.paymentMethodButton, 
-                        paymentMethod === 'chapa' && styles.selectedPaymentMethod
-                      ]}
-                      onPress={() => handlePaymentMethodChange('chapa')}
-                    >
-                      <View style={styles.paymentMethodContent}>
-                        <Image source={require('../../assets/logo/Chapa.png')} style={styles.paymentMethodLogo} />
-                        <Text style={styles.paymentMethodText}>Chapa</Text>
-                      </View>
-                      <View style={[
-                        styles.radioOuter,
-                        paymentMethod === 'chapa' && styles.radioOuterSelected
-                      ]}>
-                        {paymentMethod === 'chapa' && (
-                          <View style={styles.radioInner} />
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={[styles.paymentMethodButton, paymentMethod === 'mastercard' && styles.selectedPaymentMethod]}
-                      onPress={() => handlePaymentMethodChange('mastercard')}
-                    >
-                      <View style={styles.paymentMethodContent}>
-                        <Image source={require('../../assets/logo/mastercard.jpg')} style={styles.paymentMethodLogo} />
-                        <Text style={styles.paymentMethodText}>Mastercard</Text>
-                      </View>
-                      <View style={[
-                        styles.radioOuter,
-                        paymentMethod === 'mastercard' && styles.radioOuterSelected
-                      ]}>
-                        {paymentMethod === 'mastercard' && (
-                          <View style={styles.radioInner} />
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-
-                  {paymentMethod === 'chapa' && (
-                    <View style={styles.chapaOptions}>
-                      <Text style={styles.subtitle}>Select payment option:</Text>
-                      
-                      <TouchableOpacity 
-                        style={[
-                          styles.chapaOption,
-                          selectedChapaOption === 'telebirr' && styles.selectedChapaOption
-                        ]}
-                        onPress={() => handleChapaOptionChange('telebirr')}
-                      >
-                        <Image source={require('../../assets/logo/TeleBirr.png')} style={styles.chapaOptionLogo} />
-                        <Text style={styles.chapaOptionText}>Telebirr</Text>
-                        <View style={[
-                          styles.radioOuter,
-                          selectedChapaOption === 'telebirr' && styles.radioOuterSelected
-                        ]}>
-                          {selectedChapaOption === 'telebirr' && (
-                            <View style={styles.radioInner} />
-                          )}
-                        </View>
-                      </TouchableOpacity>
-                      
-                      {selectedChapaOption === 'telebirr' && (
-                        <View style={styles.paymentForm}>
-                          <TextInput
-                            style={styles.input}
-                            placeholder="Phone Number"
-                            placeholderTextColor="#888"
-                            value={mobilePaymentDetails.phoneNumber}
-                            onChangeText={(text) => {
-                              const value = text.replace(/\D/g, '').slice(0, 10);
-                              handleMobilePaymentChange('phoneNumber', value);
-                            }}
-                            keyboardType="phone-pad"
-                          />
-                          {mobilePaymentDetails.phoneNumber && !validatePhoneNumber(mobilePaymentDetails.phoneNumber) && (
-                            <Text style={styles.errorText}>Please enter a valid Ethiopian phone number (09XXXXXXXX)</Text>
-                          )}
-                          
-                          <TextInput
-                            style={styles.input}
-                            placeholder="Full Name"
-                            placeholderTextColor="#888"
-                            value={mobilePaymentDetails.fullName}
-                            onChangeText={(text) => handleMobilePaymentChange('fullName', text)}
-                          />
-                          
-                          <TouchableOpacity 
-                            style={styles.payButton}
-                            onPress={handlePay}
-                            disabled={loading}
-                          >
-                            {loading ? (
-                              <ActivityIndicator color="#EEEEEE" />
-                            ) : (
-                              <Text style={styles.payButtonText}>
-                                {testMode ? 'Test Telebirr Payment' : 'Pay with Telebirr'}
-                              </Text>
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                      
-                      <TouchableOpacity 
-                        style={[
-                          styles.chapaOption,
-                          selectedChapaOption === 'cbe' && styles.selectedChapaOption
-                        ]}
-                        onPress={() => handleChapaOptionChange('cbe')}
-                      >
-                        <Image source={require('../../assets/logo/CBEBirr.png')} style={styles.chapaOptionLogo} />
-                        <Text style={styles.chapaOptionText}>CBE Birr</Text>
-                        <View style={[
-                          styles.radioOuter,
-                          selectedChapaOption === 'cbe' && styles.radioOuterSelected
-                        ]}>
-                          {selectedChapaOption === 'cbe' && (
-                            <View style={styles.radioInner} />
-                          )}
-                        </View>
-                      </TouchableOpacity>
-                      
-                      {selectedChapaOption === 'cbe' && (
-                        <View style={styles.paymentForm}>
-                          <TextInput
-                            style={styles.input}
-                            placeholder="Phone Number"
-                            placeholderTextColor="#888"
-                            value={mobilePaymentDetails.phoneNumber}
-                            onChangeText={(text) => {
-                              const value = text.replace(/\D/g, '').slice(0, 10);
-                              handleMobilePaymentChange('phoneNumber', value);
-                            }}
-                            keyboardType="phone-pad"
-                          />
-                          {mobilePaymentDetails.phoneNumber && !validatePhoneNumber(mobilePaymentDetails.phoneNumber) && (
-                            <Text style={styles.errorText}>Please enter a valid Ethiopian phone number (09XXXXXXXX)</Text>
-                          )}
-                          
-                          <TextInput
-                            style={styles.input}
-                            placeholder="Full Name"
-                            placeholderTextColor="#888"
-                            value={mobilePaymentDetails.fullName}
-                            onChangeText={(text) => handleMobilePaymentChange('fullName', text)}
-                          />
-                          
-                          <TouchableOpacity 
-                            style={styles.payButton}
-                            onPress={handlePay}
-                            disabled={loading}
-                          >
-                            {loading ? (
-                              <ActivityIndicator color="#EEEEEE" />
-                            ) : (
-                              <Text style={styles.payButtonText}>
-                                {testMode ? 'Test CBE Birr Payment' : 'Pay with CBE Birr'}
-                              </Text>
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                      )}
+                
+                <ScrollView style={styles.paymentModalContent}>
+                  {testMode && (
+                    <View style={styles.testModeBanner}>
+                      <Text style={styles.testModeText}>
+                        You're in test mode. Transactions will appear on the Chapa dashboard but won't process real payments.
+                      </Text>
                     </View>
                   )}
+                  
+                  <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Booking Summary</Text>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Hotel:</Text>
+                      <Text style={styles.summaryValue}>{bookingDetails?.hotelName}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Room Type:</Text>
+                      <Text style={styles.summaryValue}>{bookingDetails?.roomType}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Rooms:</Text>
+                      <Text style={styles.summaryValue}>{bookingDetails?.roomNumbers.join(', ')}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Check-in:</Text>
+                      <Text style={styles.summaryValue}>{bookingDetails?.checkInDate}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Check-out:</Text>
+                      <Text style={styles.summaryValue}>{bookingDetails?.checkOutDate}</Text>
+                    </View>
+                    
+                    <Divider style={styles.summaryDivider} />
+                    
+                    <View style={styles.summaryRow}>
+                      <Text style={[styles.summaryLabel, styles.totalLabel]}>Total:</Text>
+                      <Text style={[styles.summaryValue, styles.totalValue]}>${bookingDetails?.totalPrice}</Text>
+                    </View>
+                  </View>
 
-                  {paymentMethod === 'mastercard' && (
-                    <View style={styles.paymentForm}>
-                      {testMode && (
-                        <TouchableOpacity
-                          style={styles.fillTestDataButton}
-                          onPress={() => {
-                            setCardDetails({
-                              name: "Test User",
-                              email: `test+${generateTxRef()}@example.com`,
-                              cardNumber: TEST_CARD_NUMBER,
-                              expiry: TEST_EXPIRY,
-                              cvv: TEST_CVV
-                            });
-                          }}
+                  <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Payment Method</Text>
+                    
+                    <View style={styles.paymentMethods}>
+                      <TouchableOpacity 
+                        style={[
+                          styles.paymentMethodButton, 
+                          paymentMethod === 'chapa' && styles.selectedPaymentMethod
+                        ]}
+                        onPress={() => handlePaymentMethodChange('chapa')}
+                      >
+                        <View style={styles.paymentMethodContent}>
+                          <Image source={require('../../assets/logo/Chapa.png')} style={styles.paymentMethodLogo} />
+                          <Text style={styles.paymentMethodText}>Chapa</Text>
+                        </View>
+                        <View style={[
+                          styles.radioOuter,
+                          paymentMethod === 'chapa' && styles.radioOuterSelected
+                        ]}>
+                          {paymentMethod === 'chapa' && (
+                            <View style={styles.radioInner} />
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        style={[styles.paymentMethodButton, paymentMethod === 'mastercard' && styles.selectedPaymentMethod]}
+                        onPress={() => handlePaymentMethodChange('mastercard')}
+                      >
+                        <View style={styles.paymentMethodContent}>
+                          <Image source={require('../../assets/logo/mastercard.jpg')} style={styles.paymentMethodLogo} />
+                          <Text style={styles.paymentMethodText}>Mastercard</Text>
+                        </View>
+                        <View style={[
+                          styles.radioOuter,
+                          paymentMethod === 'mastercard' && styles.radioOuterSelected
+                        ]}>
+                          {paymentMethod === 'mastercard' && (
+                            <View style={styles.radioInner} />
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+
+                    {paymentMethod === 'chapa' && (
+                      <View style={styles.chapaOptions}>
+                        <Text style={styles.subtitle}>Select payment option:</Text>
+                        
+                        <TouchableOpacity 
+                          style={[
+                            styles.chapaOption,
+                            selectedChapaOption === 'telebirr' && styles.selectedChapaOption
+                          ]}
+                          onPress={() => handleChapaOptionChange('telebirr')}
                         >
-                          <Text style={styles.fillTestDataButtonText}>Fill Test Card Data</Text>
+                          <Image source={require('../../assets/logo/TeleBirr.png')} style={styles.chapaOptionLogo} />
+                          <Text style={styles.chapaOptionText}>Telebirr</Text>
+                          <View style={[
+                            styles.radioOuter,
+                            selectedChapaOption === 'telebirr' && styles.radioOuterSelected
+                          ]}>
+                            {selectedChapaOption === 'telebirr' && (
+                              <View style={styles.radioInner} />
+                            )}
+                          </View>
                         </TouchableOpacity>
-                      )}
-                      
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Cardholder Name"
-                        placeholderTextColor="#888"
-                        value={cardDetails.name}
-                        onChangeText={(text) => handleCardDetailChange('name', text)}
-                      />
-                      
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Email"
-                        placeholderTextColor="#888"
-                        value={cardDetails.email}
-                        onChangeText={(text) => handleCardDetailChange('email', text)}
-                        keyboardType="email-address"
-                      />
-                      
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Card Number"
-                        placeholderTextColor="#888"
-                        value={cardDetails.cardNumber}
-                        onChangeText={(text) => {
-                          const value = text.replace(/\D/g, '').slice(0, 16);
-                          handleCardDetailChange('cardNumber', value);
-                        }}
-                        keyboardType="numeric"
-                      />
-                      {cardDetails.cardNumber && !validateCardNumber(cardDetails.cardNumber) && (
-                        <Text style={styles.errorText}>Please enter a valid 16-digit card number</Text>
-                      )}
-                      
-                      <View style={styles.rowInputs}>
-                        <TextInput
-                          style={[styles.input, styles.halfInput]}
-                          placeholder="Expiry (MM/YY)"
-                          placeholderTextColor="#888"
-                          value={cardDetails.expiry}
-                          onChangeText={(text) => {
-                            let value = text.replace(/\D/g, '');
-                            if (value.length > 2) {
-                              value = value.slice(0, 2) + '/' + value.slice(2, 4);
-                            }
-                            handleCardDetailChange('expiry', value);
-                          }}
-                          keyboardType="numeric"
-                        />
-                        {cardDetails.expiry && !validateExpiry(cardDetails.expiry) && (
-                          <Text style={styles.errorText}>MM/YY</Text>
+                        
+                        {selectedChapaOption === 'telebirr' && (
+                          <View style={styles.paymentForm}>
+                            <TextInput
+                              style={styles.input}
+                              placeholder="Phone Number"
+                              placeholderTextColor="#888"
+                              value={mobilePaymentDetails.phoneNumber}
+                              onChangeText={(text) => {
+                                const value = text.replace(/\D/g, '').slice(0, 10);
+                                handleMobilePaymentChange('phoneNumber', value);
+                              }}
+                              keyboardType="phone-pad"
+                            />
+                            {mobilePaymentDetails.phoneNumber && !validatePhoneNumber(mobilePaymentDetails.phoneNumber) && (
+                              <Text style={styles.errorText}>Please enter a valid Ethiopian phone number (09XXXXXXXX)</Text>
+                            )}
+                            
+                            <TextInput
+                              style={styles.input}
+                              placeholder="Full Name"
+                              placeholderTextColor="#888"
+                              value={mobilePaymentDetails.fullName}
+                              onChangeText={(text) => handleMobilePaymentChange('fullName', text)}
+                            />
+                            
+                            <TouchableOpacity 
+                              style={styles.payButton}
+                              onPress={handlePay}
+                              disabled={loading}
+                            >
+                              {loading ? (
+                                <ActivityIndicator color="#EEEEEE" />
+                              ) : (
+                                <Text style={styles.payButtonText}>
+                                  {testMode ? 'Test Telebirr Payment' : 'Pay with Telebirr'}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                        
+                        <TouchableOpacity 
+                          style={[
+                            styles.chapaOption,
+                            selectedChapaOption === 'cbe' && styles.selectedChapaOption
+                          ]}
+                          onPress={() => handleChapaOptionChange('cbe')}
+                        >
+                          <Image source={require('../../assets/logo/CBEBirr.png')} style={styles.chapaOptionLogo} />
+                          <Text style={styles.chapaOptionText}>CBE Birr</Text>
+                          <View style={[
+                            styles.radioOuter,
+                            selectedChapaOption === 'cbe' && styles.radioOuterSelected
+                          ]}>
+                            {selectedChapaOption === 'cbe' && (
+                              <View style={styles.radioInner} />
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                        
+                        {selectedChapaOption === 'cbe' && (
+                          <View style={styles.paymentForm}>
+                            <TextInput
+                              style={styles.input}
+                              placeholder="Phone Number"
+                              placeholderTextColor="#888"
+                              value={mobilePaymentDetails.phoneNumber}
+                              onChangeText={(text) => {
+                                const value = text.replace(/\D/g, '').slice(0, 10);
+                                handleMobilePaymentChange('phoneNumber', value);
+                              }}
+                              keyboardType="phone-pad"
+                            />
+                            {mobilePaymentDetails.phoneNumber && !validatePhoneNumber(mobilePaymentDetails.phoneNumber) && (
+                              <Text style={styles.errorText}>Please enter a valid Ethiopian phone number (09XXXXXXXX)</Text>
+                            )}
+                            
+                            <TextInput
+                              style={styles.input}
+                              placeholder="Full Name"
+                              placeholderTextColor="#888"
+                              value={mobilePaymentDetails.fullName}
+                              onChangeText={(text) => handleMobilePaymentChange('fullName', text)}
+                            />
+                            
+                            <TouchableOpacity 
+                              style={styles.payButton}
+                              onPress={handlePay}
+                              disabled={loading}
+                            >
+                              {loading ? (
+                                <ActivityIndicator color="#EEEEEE" />
+                              ) : (
+                                <Text style={styles.payButtonText}>
+                                  {testMode ? 'Test CBE Birr Payment' : 'Pay with CBE Birr'}
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {paymentMethod === 'mastercard' && (
+                      <View style={styles.paymentForm}>
+                        {testMode && (
+                          <TouchableOpacity
+                            style={styles.fillTestDataButton}
+                            onPress={() => {
+                              setCardDetails({
+                                name: "Test User",
+                                email: `test+${generateTxRef()}@example.com`,
+                                cardNumber: TEST_CARD_NUMBER,
+                                expiry: TEST_EXPIRY,
+                                cvv: TEST_CVV
+                              });
+                            }}
+                          >
+                            <Text style={styles.fillTestDataButtonText}>Fill Test Card Data</Text>
+                          </TouchableOpacity>
                         )}
                         
                         <TextInput
-                          style={[styles.input, styles.halfInput]}
-                          placeholder="CVV"
+                          style={styles.input}
+                          placeholder="Cardholder Name"
                           placeholderTextColor="#888"
-                          value={cardDetails.cvv}
+                          value={cardDetails.name}
+                          onChangeText={(text) => handleCardDetailChange('name', text)}
+                        />
+                        
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Email"
+                          placeholderTextColor="#888"
+                          value={cardDetails.email}
+                          onChangeText={(text) => handleCardDetailChange('email', text)}
+                          keyboardType="email-address"
+                        />
+                        
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Card Number"
+                          placeholderTextColor="#888"
+                          value={cardDetails.cardNumber}
                           onChangeText={(text) => {
-                            const value = text.replace(/\D/g, '').slice(0, 4);
-                            handleCardDetailChange('cvv', value);
+                            const value = text.replace(/\D/g, '').slice(0, 16);
+                            handleCardDetailChange('cardNumber', value);
                           }}
                           keyboardType="numeric"
-                          secureTextEntry
                         />
-                        {cardDetails.cvv && !validateCVV(cardDetails.cvv) && (
-                          <Text style={styles.errorText}>3-4 digits</Text>
+                        {cardDetails.cardNumber && !validateCardNumber(cardDetails.cardNumber) && (
+                          <Text style={styles.errorText}>Please enter a valid 16-digit card number</Text>
                         )}
+                        
+                        <View style={styles.rowInputs}>
+                          <TextInput
+                            style={[styles.input, styles.halfInput]}
+                            placeholder="Expiry (MM/YY)"
+                            placeholderTextColor="#888"
+                            value={cardDetails.expiry}
+                            onChangeText={(text) => {
+                              let value = text.replace(/\D/g, '');
+                              if (value.length > 2) {
+                                value = value.slice(0, 2) + '/' + value.slice(2, 4);
+                              }
+                              handleCardDetailChange('expiry', value);
+                            }}
+                            keyboardType="numeric"
+                          />
+                          {cardDetails.expiry && !validateExpiry(cardDetails.expiry) && (
+                            <Text style={styles.errorText}>MM/YY</Text>
+                          )}
+                          
+                          <TextInput
+                            style={[styles.input, styles.halfInput]}
+                            placeholder="CVV"
+                            placeholderTextColor="#888"
+                            value={cardDetails.cvv}
+                            onChangeText={(text) => {
+                              const value = text.replace(/\D/g, '').slice(0, 4);
+                              handleCardDetailChange('cvv', value);
+                            }}
+                            keyboardType="numeric"
+                            secureTextEntry
+                          />
+                          {cardDetails.cvv && !validateCVV(cardDetails.cvv) && (
+                            <Text style={styles.errorText}>3-4 digits</Text>
+                          )}
+                        </View>
+                        
+                        <TouchableOpacity 
+                          style={styles.payButton}
+                          onPress={handlePay}
+                          disabled={loading}
+                        >
+                          {loading ? (
+                            <ActivityIndicator color="#EEEEEE" />
+                          ) : (
+                            <Text style={styles.payButtonText}>
+                              {testMode ? 'Test Mastercard Payment' : 'Pay with Mastercard'}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
                       </View>
-                      
-                      <TouchableOpacity 
-                        style={styles.payButton}
-                        onPress={handlePay}
-                        disabled={loading}
-                      >
-                        {loading ? (
-                          <ActivityIndicator color="#EEEEEE" />
-                        ) : (
-                          <Text style={styles.payButtonText}>
-                            {testMode ? 'Test Mastercard Payment' : 'Pay with Mastercard'}
-                          </Text>
-                        )}
-                      </TouchableOpacity>
+                    )}
+                    
+                    <View style={styles.secureBadge}>
+                      <MaterialIcons name="verified" size={20} color="#00ADB5" />
+                      <Text style={styles.secureBadgeText}>Secure Payment</Text>
                     </View>
-                  )}
-                  
-                  <View style={styles.secureBadge}>
-                    <MaterialIcons name="verified" size={20} color="#00ADB5" />
-                    <Text style={styles.secureBadgeText}>Secure Payment</Text>
                   </View>
+                </ScrollView>
+                
+                <View style={styles.paymentModalFooter}>
+                  <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
                 </View>
-              </ScrollView>
-              
-              <View style={styles.paymentModalFooter}>
-                <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
+              </>
+            )}
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      {/* Success Notification Modal */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="none"
+      >
+        <View style={styles.successModalOverlay}>
+          <Animated.View style={[styles.successModalContainer, { transform: [{ scale: scaleAnim }] }]}>
+            <LinearGradient
+              colors={['#00ADB5', '#4ECDC4']}
+              style={styles.successModalGradient}
+            >
+              <View style={styles.successIconContainer}>
+                <MaterialIcons name="check-circle" size={60} color="#FFFFFF" />
+              </View>
+              <Text style={styles.successModalTitle}>Payment Successful!</Text>
+              <Text style={styles.successModalMessage}>{successMessage}</Text>
+              <TouchableOpacity
+                style={styles.successModalButton}
+                onPress={() => setShowSuccessModal(false)}
+              >
+                <Text style={styles.successModalButtonText}>Continue</Text>
+              </TouchableOpacity>
+            </LinearGradient>
+          </Animated.View>
+        </View>
+      </Modal>
+    </>
   );
 };
 
@@ -1586,6 +1637,55 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+  },
+  successModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successModalContainer: {
+    width: '80%',
+    borderRadius: 15,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  successModalGradient: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  successIconContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 50,
+    padding: 15,
+    marginBottom: 15,
+  },
+  successModalTitle: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  successModalMessage: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  successModalButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 25,
+    paddingVertical: 10,
+    paddingHorizontal: 30,
+  },
+  successModalButtonText: {
+    color: '#00ADB5',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
